@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"net/url"
 	"flag"
+	"net"
 )
 
 var concurrency = flag.Int("c", 100, "Concurrency")
@@ -35,9 +36,25 @@ func main() {
 
 	channels := make([]chan bool, *concurrency)
 
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		Dial: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 60 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DisableKeepAlives: false,
+		MaxIdleConnsPerHost: 300000,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+	}
+
+	fmt.Printf("Transport: %v\n", client.Transport)
 	for i := 0; i < len(channels); i++ {
 		channels[i] = make(chan bool)
-		go run(10000, channels[i])
+		go run(client, 10000, channels[i])
 	}
 
 	for i := 0; i < len(channels); i++ {
@@ -45,12 +62,11 @@ func main() {
 	}
 }
 
-func run(requests int, c chan bool) {
+func run(client *http.Client, requests int, c chan bool) {
 	maxFails := 100
 	fails := 0
 	maxLinks := len(links)
 
-	client := &http.Client{}
 	req, err := http.NewRequest("GET", "", nil)
 	if err != nil {
 		log.Printf("Error while creating request. %v", err)
